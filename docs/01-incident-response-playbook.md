@@ -66,6 +66,38 @@ Production keys leaked?
                         └── NO  ──→ Assess further, consult security lead
 ```
 
+### 1.5 Partial Leak Decision Tree
+
+Not all leaks are equal. Different credential types require different responses:
+
+```
+What specific credentials were leaked?
+├── Only webhook secret (no API keys) ──→
+│   Risk: Webhook forgery only (no API access)
+│   Action: Rotate webhook secret, enable nonce dedup, monitor webhooks
+│   Severity: P2 if production, P3 if test
+│
+├── Only DB connection strings ──→
+│   Risk: Direct database access (bypasses ALL API controls)
+│   Action: IMMEDIATE DB password rotation + restrict to app IPs
+│   Severity: P1 (even without API key leak, DB access is critical)
+│
+├── Only test keys (no production, no config) ──→
+│   Risk: Minimal — test env has no real data
+│   Action: Standard rotation within 24h, review for config exposure
+│   Severity: P3
+│
+├── API keys + webhook secrets + config ──→
+│   Risk: Full compromise — API access + webhook forgery + business intel
+│   Action: Full emergency playbook (all phases)
+│   Severity: P1
+│
+└── Service-to-service tokens ──→
+    Risk: Lateral movement within merchant's infrastructure
+    Action: Notify merchant immediately, rotate tokens, audit service mesh
+    Severity: P1 if production services affected
+```
+
 ---
 
 ## Phase 2: Blast Radius Analysis (15–30 minutes)
@@ -247,12 +279,31 @@ python incident-response/generate_report.py \
     --output incident_report.md
 ```
 
-### 6.2 Lessons Learned
+### 6.2 Incident Metrics
+
+Track these KPIs per incident to measure and improve SOC effectiveness:
+
+| Metric | Definition | Target | QuickEats Actual |
+|--------|-----------|--------|-----------------|
+| **MTTD** (Mean Time to Detect) | Commit timestamp → Detection alert | < 1 hour | 18 hours (GitHub scanning delay) |
+| **MTTR** (Mean Time to Respond) | Detection → Credentials revoked | < 15 min (P1) | TBD |
+| **MTTC** (Mean Time to Contain) | Detection → All containment actions complete | < 1 hour (P1) | TBD |
+| **Blast Radius** | Transactions during exposure window | Minimize | ~37,500 txns ($1.875M) |
+| **False Positive Rate** | Alerts investigated / Alerts that were real incidents | < 20% | N/A (confirmed real) |
+
+**Post-Incident Improvement Targets:**
+- Reduce MTTD to < 1 hour by enabling real-time GitHub secret scanning webhooks
+- Automate credential rotation to achieve MTTR < 5 minutes
+- Implement proactive scanning of all merchant repos (not just reactive alerts)
+
+### 6.3 Lessons Learned
 
 - [ ] Conduct retrospective with SOC + merchant engineering
 - [ ] Update credential patterns in GitHub Secret Scanning
 - [ ] Evaluate: should Yuno mandate secrets scanning for all merchants?
 - [ ] Update this playbook with any new findings
+- [ ] Review MTTD/MTTR metrics against targets and adjust response procedures
+- [ ] Evaluate automation gaps that contributed to slow detection/response
 
 ### 6.3 Compliance Notifications
 

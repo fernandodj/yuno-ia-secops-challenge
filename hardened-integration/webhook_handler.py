@@ -39,17 +39,22 @@ class WebhookEvent:
 
 class _NonceCache:
     """
-    Thread-safe in-memory nonce deduplication cache.
+    Thread-safe, bounded, in-memory nonce deduplication cache.
 
     Why nonce: timestamp alone allows replay within the tolerance window.
     Nonce + timestamp together provide complete replay protection.
+
+    Why bounded: without a max size, sustained replay attacks within the TTL
+    window could grow memory unboundedly. The max_size limit (default 100K)
+    provides a hard cap; if exceeded, oldest entries are evicted first.
 
     Production note: replace with Redis SETNX + TTL for horizontal scalability.
     Cost: ~1KB/webhook, 50K webhooks/day = 50MB Redis — trivial.
     """
 
-    def __init__(self, ttl_seconds: int = 600) -> None:
+    def __init__(self, ttl_seconds: int = 600, max_size: int = 100_000) -> None:
         self._ttl = ttl_seconds
+        self._max_size = max_size
         self._seen: dict[str, float] = {}
         self._lock = threading.Lock()
 
@@ -60,6 +65,13 @@ class _NonceCache:
             expired = [k for k, ts in self._seen.items() if now - ts > self._ttl]
             for k in expired:
                 del self._seen[k]
+
+            # Hard cap: if still over max_size, evict oldest entries
+            if len(self._seen) >= self._max_size:
+                sorted_keys = sorted(self._seen, key=self._seen.get)
+                for k in sorted_keys[:len(self._seen) - self._max_size + 1]:
+                    del self._seen[k]
+
             if nonce in self._seen:
                 return True
             self._seen[nonce] = now

@@ -112,8 +112,8 @@ tags = ["entropy", "base64"]
 [allowlist]
 description = "Global allowlist"
 paths = [
-    '''(.*)test(.*)''',
-    '''(.*)/test-samples/(.*)''',
+    '''secrets-scanning/test-samples/(.*)''',
+    '''(.*)/tests/conftest\.py''',
     '''gitleaks.toml''',
 ]
 regexTarget = "match"

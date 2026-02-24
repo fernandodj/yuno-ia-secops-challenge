@@ -2,7 +2,7 @@
 End-to-end integration tests using FastAPI TestClient.
 
 Validates the full request lifecycle including security headers,
-error handling, webhook flow, and rate limiting.
+error handling, webhook flow, authentication, and rate limiting.
 """
 
 import hashlib
@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from app import app
 
 WEBHOOK_SECRET = "whsec_test_current_secret_key_1234567890"
+AUTH_HEADER = {"Authorization": "Bearer yuno_pk_test_abcdef1234567890abcdef1234567890"}
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +47,11 @@ class TestHealthCheck:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    def test_health_no_auth_required(self, client):
+        """Health check should be public -- no API key needed."""
+        response = client.get("/health")  # No auth header
+        assert response.status_code == 200
+
 
 class TestSecurityHeaders:
     def test_security_headers_present(self, client):
@@ -56,6 +62,25 @@ class TestSecurityHeaders:
         assert "max-age=31536000" in response.headers.get("Strict-Transport-Security", "")
         assert response.headers.get("Content-Security-Policy") is not None
         assert "no-store" in response.headers.get("Cache-Control", "")
+
+
+class TestAuthentication:
+    def test_unauthenticated_request_rejected(self, client):
+        """Requests without API key should get 401."""
+        response = client.get("/payments/pay_123")
+        assert response.status_code == 401
+        assert response.json() == {"error": "unauthorized"}
+
+    def test_short_token_rejected(self, client):
+        """Obviously invalid short tokens should be rejected."""
+        response = client.get("/payments/pay_123",
+                              headers={"Authorization": "Bearer short"})
+        assert response.status_code == 401
+
+    def test_authenticated_request_accepted(self, client):
+        """Valid API key should pass auth (may fail upstream, but not 401)."""
+        response = client.get("/payments/pay_abc123", headers=AUTH_HEADER)
+        assert response.status_code in (200, 502)  # 502 = upstream not running
 
 
 class TestWebhookFlow:
@@ -85,6 +110,28 @@ class TestWebhookFlow:
         assert response.status_code == 200
         assert response.json()["status"] == "accepted"
 
+    def test_webhook_no_api_key_needed(self, client):
+        """Webhooks use HMAC auth, not API keys -- no Bearer token required."""
+        payload = json.dumps({
+            "event_type": "test",
+            "payment_id": "pay_noauth",
+            "status": "approved",
+            "amount": "5.00",
+            "currency": "USD",
+            "timestamp": "2024-01-15T12:00:00Z",
+            "idempotency_key": "idem_noauth_001",
+        }).encode()
+        ts = str(int(time.time()))
+        sig = _sign_webhook(payload, ts)
+
+        response = client.post(
+            "/webhooks/yuno",
+            content=payload,
+            headers={"x-yuno-signature": sig, "x-yuno-timestamp": ts},
+        )
+        # Should succeed without Authorization header
+        assert response.status_code == 200
+
     def test_bad_signature_returns_generic_400(self, client):
         """POST with bad signature -> 400 with generic error message."""
         payload = json.dumps({
@@ -101,11 +148,7 @@ class TestWebhookFlow:
         response = client.post(
             "/webhooks/yuno",
             content=payload,
-            headers={
-                "x-yuno-signature": "invalid_signature",
-                "x-yuno-timestamp": ts,
-                "content-type": "application/json",
-            },
+            headers={"x-yuno-signature": "invalid_signature", "x-yuno-timestamp": ts},
         )
         assert response.status_code == 400
         # Must be generic -- not "bad signature" or "invalid HMAC"
@@ -124,24 +167,19 @@ class TestWebhookFlow:
         }).encode()
         ts = str(int(time.time()))
         sig = _sign_webhook(payload, ts)
-        headers = {
-            "x-yuno-signature": sig,
-            "x-yuno-timestamp": ts,
-            "content-type": "application/json",
-        }
+        headers = {"x-yuno-signature": sig, "x-yuno-timestamp": ts}
 
         r1 = client.post("/webhooks/yuno", content=payload, headers=headers)
         assert r1.status_code == 200
 
         r2 = client.post("/webhooks/yuno", content=payload, headers=headers)
-        # Deduplicated: still 200 (ack to prevent sender retries)
-        assert r2.status_code == 200
+        assert r2.status_code == 200  # Ack to prevent sender retries
 
 
 class TestErrorHandling:
     def test_404_does_not_leak_internals(self, client):
         response = client.get("/nonexistent/endpoint")
-        assert response.status_code in (404, 405)
+        assert response.status_code in (401, 404, 405)
         body = response.text
         assert "Traceback" not in body
         assert "/Users/" not in body
@@ -160,13 +198,11 @@ class TestErrorHandling:
 
 class TestInputValidation:
     def test_invalid_payment_id_rejected(self, client):
-        """Payment ID with special chars should be rejected."""
-        response = client.get("/payments/drop-table--injection")
-        # Path traversal chars are rejected by regex validation
-        assert response.status_code in (400, 502)
+        """Payment ID with path traversal should be rejected."""
+        response = client.get("/payments/../../etc/passwd", headers=AUTH_HEADER)
+        assert response.status_code in (400, 404)
 
     def test_valid_payment_id_format_accepted(self, client):
         """Valid payment ID format passes validation (may fail upstream)."""
-        response = client.get("/payments/pay_abc123")
-        # Gets 502 (upstream not running) but should NOT get 400
+        response = client.get("/payments/pay_abc123", headers=AUTH_HEADER)
         assert response.status_code in (502, 200)

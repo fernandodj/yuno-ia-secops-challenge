@@ -45,6 +45,44 @@ QuickEats (food delivery, $2.5M/day, 50K+ txns) had API credentials committed to
         └── fake_secrets.py               # Intentional secrets for demo
 ```
 
+## Prerequisites
+
+- **Python 3.10+** (tested with 3.12)
+- **pip** (or your preferred package manager)
+- **Gitleaks** (optional, for `make scan-secrets`) — install via `brew install gitleaks` or [gitleaks releases](https://github.com/gitleaks/gitleaks/releases)
+
+## Architecture: Request Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client/Yuno
+    participant IP as IP Allowlist
+    participant SZ as Size Limit
+    participant RL as Rate Limiter
+    participant AL as Audit Logger
+    participant SH as Security Headers
+    participant AU as Auth Middleware
+    participant EP as Endpoint Logic
+    participant WH as Webhook Verifier
+
+    C->>IP: Incoming Request
+    IP->>SZ: Check body size (reads actual bytes)
+    SZ->>RL: Token bucket check (key + IP + endpoint)
+    RL->>AL: Log request (sanitized)
+    AL->>SH: Add HSTS, CSP, X-Frame-Options
+    SH->>AU: Validate Bearer token + scopes
+
+    alt Webhook endpoint
+        AU->>WH: HMAC-SHA256 + timestamp + nonce
+        WH->>EP: Process event
+    else Payment endpoint
+        AU->>EP: @requires_scope(PAYMENT_WRITE)
+        EP->>EP: Sign request → Yuno API
+    end
+
+    EP-->>C: Response (generic errors, no internals)
+```
+
 ## Quick Start
 
 ```bash

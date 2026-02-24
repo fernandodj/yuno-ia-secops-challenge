@@ -382,8 +382,9 @@ class LogAnalyzer:
             if len(timestamps) > 15:  # More than 15 requests to same endpoint pattern
                 ip = key.split(":")[0]
                 endpoint_pattern = key.split(":", 1)[1]
-                if ip not in [i[0] for i in [("198.51.100.10",), ("198.51.100.11",),
-                              ("198.51.100.20",), ("203.0.113.50",), ("203.0.113.51",)]]:
+                # Only flag IPs not seen in the pre-leak baseline (dynamic, not hardcoded)
+                pre_ips = {e["ip_address"] for e in self.pre_leak_entries}
+                if ip not in pre_ips:
                     self.findings.append(Finding(
                         severity=MEDIUM,
                         category="Enumeration Pattern",
