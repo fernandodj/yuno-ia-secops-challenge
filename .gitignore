@@ -1,3 +1,8 @@
+# Generated sample data and reports (regenerated via make demo-*)
+incident-response/sample_data/sample_api_logs.jsonl
+incident-response/sample_data/analysis_report.json
+incident-response/sample_data/incident_report.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

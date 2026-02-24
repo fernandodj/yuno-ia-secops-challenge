@@ -1,0 +1,127 @@
+# Gitleaks configuration for Yuno credential pattern detection.
+# Combines regex pattern matching with entropy-based detection for
+# comprehensive secret scanning coverage.
+#
+# Regex catches known formats; entropy catches unknown high-randomness strings
+# that don't match any pattern. Together they provide defense in depth.
+
+title = "Yuno Secrets Scanning Configuration"
+
+# --- Yuno-specific credential patterns ---
+
+[[rules]]
+id = "yuno-api-key-live"
+description = "Yuno Production API Key"
+regex = '''yuno_pk_live_[A-Za-z0-9]{16,64}'''
+tags = ["yuno", "api-key", "production", "critical"]
+
+[[rules]]
+id = "yuno-api-key-test"
+description = "Yuno Test API Key"
+regex = '''yuno_pk_test_[A-Za-z0-9]{16,64}'''
+tags = ["yuno", "api-key", "test"]
+
+[[rules]]
+id = "yuno-api-secret-live"
+description = "Yuno Production API Secret"
+regex = '''yuno_sk_live_[A-Za-z0-9]{16,64}'''
+tags = ["yuno", "api-secret", "production", "critical"]
+
+[[rules]]
+id = "yuno-api-secret-test"
+description = "Yuno Test API Secret"
+regex = '''yuno_sk_test_[A-Za-z0-9]{16,64}'''
+tags = ["yuno", "api-secret", "test"]
+
+[[rules]]
+id = "yuno-webhook-secret"
+description = "Yuno Webhook Signing Secret"
+regex = '''whsec_[A-Za-z0-9]{16,64}'''
+tags = ["yuno", "webhook", "critical"]
+
+# --- Common credential patterns ---
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key in assignment"
+regex = '''(?i)(api[_-]?key|apikey|api[_-]?secret)\s*[=:]\s*['"][A-Za-z0-9+/=_-]{20,}['"]'''
+tags = ["generic", "api-key"]
+
+[[rules]]
+id = "database-connection-string"
+description = "Database Connection String with Password"
+regex = '''(?i)(postgres|mysql|mongodb|redis)://[^:]+:[^@]+@[^/\s]+'''
+tags = ["database", "credential", "critical"]
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS Access Key ID"
+regex = '''AKIA[0-9A-Z]{16}'''
+tags = ["aws", "access-key"]
+
+[[rules]]
+id = "aws-secret-key"
+description = "AWS Secret Access Key"
+regex = '''(?i)aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*['"][A-Za-z0-9+/=]{40}['"]'''
+tags = ["aws", "secret-key", "critical"]
+
+[[rules]]
+id = "private-key"
+description = "Private Key"
+regex = '''-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----'''
+tags = ["private-key", "critical"]
+
+[[rules]]
+id = "jwt-token"
+description = "JSON Web Token"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+tags = ["jwt", "token"]
+
+[[rules]]
+id = "password-in-url"
+description = "Password in URL"
+regex = '''[a-zA-Z]{3,10}://[^:]+:[^@]{3,}@'''
+tags = ["password", "url", "critical"]
+
+[[rules]]
+id = "generic-password-assignment"
+description = "Password Assignment"
+regex = '''(?i)(password|passwd|pwd|secret)\s*[=:]\s*['"][^'"]{8,}['"]'''
+tags = ["password", "generic"]
+
+# --- Entropy-based detection ---
+# Catch high-entropy strings that don't match known patterns.
+# Shannon entropy > 4.5 on strings > 20 chars is likely a secret.
+
+[[rules]]
+id = "high-entropy-hex"
+description = "High-entropy hexadecimal string (possible secret)"
+regex = '''['\"][0-9a-f]{32,}['\"]'''
+entropy = 3.5
+tags = ["entropy", "hex"]
+
+[[rules]]
+id = "high-entropy-base64"
+description = "High-entropy base64 string (possible secret)"
+regex = '''['\"][A-Za-z0-9+/=]{40,}['\"]'''
+entropy = 4.5
+tags = ["entropy", "base64"]
+
+# --- Allowlists (reduce false positives) ---
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''(.*)test(.*)''',
+    '''(.*)/test-samples/(.*)''',
+    '''gitleaks.toml''',
+]
+regexTarget = "match"
+# Allow test/example patterns that are clearly fake
+regexes = [
+    '''EXAMPLE_[A-Z_]+''',
+    '''your[_-]api[_-]key[_-]here''',
+    '''changeme''',
+    '''placeholder''',
+    '''TODO:.*secret''',
+]

@@ -1,0 +1,15 @@
+# Pre-commit hooks for secrets scanning.
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# Why pre-commit: catches secrets BEFORE they reach the repository.
+# Defense in depth: this is the first layer; CI/CD scanning is the second.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+        args: ["--config", "secrets-scanning/gitleaks.toml"]
+        name: "Gitleaks: Scan for secrets"
+        description: "Detect hardcoded secrets using regex + entropy analysis"
